@@ -1,12 +1,43 @@
 from fastapi import FastAPI
-from app.api import auth, assessments
+from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="AI Assessment Platform", version="0.1")
+from app.core.config import settings
+from app.api.endpoints import auth, assessments, users
 
-# Routers
-app.include_router(auth.router)
-# app.include_router(assessments.router, prefix="/api/assessments", tags=["assessments"])
+app = FastAPI(
+    title=settings.PROJECT_NAME,
+    description="AI Assessment Platform API - Comprehensive maturity and readiness assessments",
+    version=settings.VERSION,
+    docs_url="/hidden-docs",
+    redoc_url="/hidden-redoc"
+)
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.BACKEND_CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Include routers
+app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
+app.include_router(assessments.router, prefix="/api/assessments", tags=["Assessments"])
+# app.include_router(users.router, prefix="/api/users", tags=["Users"])
 
 @app.get("/")
-def health_check():
-    return {"status": "ok"}
+async def root():
+    return {
+        "message": "AI Assessment Platform API",
+        "version": settings.VERSION,
+        "docs": "/docs"
+    }
+
+@app.get("/health")
+async def health_check():
+    return {
+        "status": "healthy",
+        "version": settings.VERSION,
+        "environment": settings.ENVIRONMENT
+    }

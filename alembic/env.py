@@ -1,16 +1,17 @@
 from logging.config import fileConfig
 from sqlalchemy import create_engine
 from alembic import context
-from app.core.database import Base, DATABASE_URL
+from app.core.database import Base, ASYNC_DATABASE_URL
 from app.models import user  # import models
 
 config = context.config
-fileConfig(config.config_file_name)
+if config.config_file_name is not None:
+    fileConfig(config.config_file_name)
 target_metadata = Base.metadata
 
 def run_migrations_offline():
     context.configure(
-        url=DATABASE_URL.replace("+asyncpg", ""),  # sync URL for alembic
+        url=ASYNC_DATABASE_URL.replace("+asyncpg", ""),  # sync URL for alembic
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -19,7 +20,7 @@ def run_migrations_offline():
         context.run_migrations()
 
 def run_migrations_online():
-    connectable = create_engine(DATABASE_URL.replace("+asyncpg", ""))
+    connectable = create_engine(ASYNC_DATABASE_URL.replace("+asyncpg", ""))
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():

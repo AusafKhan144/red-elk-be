@@ -1,21 +1,34 @@
 import os
 from pydantic_settings import BaseSettings
+from typing import List
+import secrets
+from dotenv import load_dotenv
+
+load_dotenv(override=True)
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = "Red Elk"
-    SECRET_KEY: str = os.getenv("SECRET_KEY","some-secret-value")
+    # Project
+    PROJECT_NAME: str = "AI Assessment Platform"
+    VERSION: str = "1.0.0"
+    ENVIRONMENT: str = "development"
+    
+    # Security
+    SECRET_KEY: str = secrets.token_urlsafe(32)
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
-
-    POSTGRES_USER: str = os.getenv("POSTGRES_USER", "postgres")
-    POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "postgres")
-    POSTGRES_DB: str = os.getenv("POSTGRES_DB", "red-elk")
-    POSTGRES_HOST: str = os.getenv("POSTGRES_HOST", "localhost")
-    POSTGRES_PORT: int = 5432
-
-    @property
-    def database_url(self):
-        return (f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
-                f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}")
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 43200  # 30 days
+    
+    # Database
+    DATABASE_URL: str = os.getenv("DATABASE_URL","")
+    
+    # CORS
+    BACKEND_CORS_ORIGINS: List[str] = [
+        "http://localhost:3000",
+        "http://localhost:3001", 
+        "http://localhost:8080"
+    ]
+    
+    class Config:
+        env_file = ".env"
+        case_sensitive = True
 
 settings = Settings()
