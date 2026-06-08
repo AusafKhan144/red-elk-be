@@ -135,3 +135,5 @@ Thumbs.db
 *.bak
 *.tmp
 *.tgz
+
+assessments/

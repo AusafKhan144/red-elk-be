@@ -1,22 +1,21 @@
-# Import all models here to ensure they're registered with SQLAlchemy
-from .user import User, UserTierEnum, UserRoleEnum
-from .assessment import (
-    Assessment, 
-    Dimension, 
-    Question, 
-    AssessmentSubmission,
+from .models import (
+    Base,
+    User,
+    Assessment,
+    AssessmentSession,
+    Response,
+    Report,
     TierEnum,
-    QuestionTypeEnum
+    SessionStatus,
 )
 
 __all__ = [
+    "Base",
     "User",
-    "UserTierEnum", 
-    "UserRoleEnum",
     "Assessment",
-    "Dimension",
-    "Question", 
-    "AssessmentSubmission",
+    "AssessmentSession",
+    "Response",
+    "Report",
     "TierEnum",
-    "QuestionTypeEnum"
+    "SessionStatus",
 ]

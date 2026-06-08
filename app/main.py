@@ -2,17 +2,16 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.api.endpoints import auth, assessments, users
+from app.routers import auth, assessments, sessions, reports, admin
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    description="AI Assessment Platform API - Comprehensive maturity and readiness assessments",
+    description="Red Elk AI Maturity Assessment API",
     version=settings.VERSION,
-    docs_url="/hidden-docs",
-    redoc_url="/hidden-redoc"
+    docs_url="/docs",
+    redoc_url="/redoc",
 )
 
-# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.BACKEND_CORS_ORIGINS,
@@ -21,23 +20,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers
-app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
-app.include_router(assessments.router, prefix="/api/assessments", tags=["Assessments"])
-# app.include_router(users.router, prefix="/api/users", tags=["Users"])
+app.include_router(auth.router)
+app.include_router(assessments.router)
+app.include_router(sessions.router)
+app.include_router(reports.router)
+app.include_router(admin.router)
 
-@app.get("/")
+
+
+@app.get("/", include_in_schema=False)
 async def root():
-    return {
-        "message": "AI Assessment Platform API",
-        "version": settings.VERSION,
-        "docs": "/docs"
-    }
+    return {"service": settings.PROJECT_NAME, "version": settings.VERSION}
 
-@app.get("/health")
-async def health_check():
-    return {
-        "status": "healthy",
-        "version": settings.VERSION,
-        "environment": settings.ENVIRONMENT
-    }
+
+@app.get("/health", include_in_schema=False)
+async def health():
+    return {"status": "ok", "version": settings.VERSION}
