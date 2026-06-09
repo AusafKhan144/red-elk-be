@@ -1,14 +1,17 @@
+import asyncio
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.dependencies import get_current_user
 from app.models.models import Assessment, AssessmentSession, Report, Response, SessionStatus, User
-from app.schemas.schemas import AnswerIn, SessionOut, SessionStartIn
+from app.schemas.schemas import AnswerIn, AnswerOut, ReportOut, SessionOut, SessionStartIn
 from app.services import report_builder
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -66,7 +69,7 @@ async def answer_question(
         )
     )
     if existing:
-        existing.answer_value = body.answer_value
+        existing.answer_value = Decimal(str(body.answer_value))
         existing.answered_at = datetime.now(timezone.utc)
     else:
         db.add(Response(
@@ -74,7 +77,7 @@ async def answer_question(
             session_id=session_id,
             question_id=body.question_id,
             dimension_id=body.dimension_id,
-            answer_value=body.answer_value,
+            answer_value=Decimal(str(body.answer_value)),
         ))
 
     await db.commit()
@@ -101,11 +104,36 @@ async def submit_session(
 
     report_out = await report_builder.build_report(session_id, db)
 
-    # Kick off PDF generation in the background (non-blocking)
-    import asyncio
     asyncio.create_task(_generate_pdf_background(report_out, session.assessment_id, db))
 
     return {"ok": True, "report_id": str(report_out.id)}
+
+
+@router.get("/{session_id}/answers", response_model=list[AnswerOut])
+async def get_session_answers(
+    session_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _get_owned_session(session_id, current_user, db)
+    result = await db.execute(
+        select(Response).where(Response.session_id == session_id)
+    )
+    return [AnswerOut.model_validate(r) for r in result.scalars().all()]
+
+
+@router.patch("/{session_id}/abandon", response_model=dict)
+async def abandon_session(
+    session_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    session = await _get_owned_session(session_id, current_user, db)
+    if session.status != SessionStatus.in_progress:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Session is not in progress")
+    session.status = SessionStatus.abandoned
+    await db.commit()
+    return {"ok": True}
 
 
 @router.get("", response_model=list[SessionOut])
@@ -115,11 +143,19 @@ async def list_sessions(
 ):
     result = await db.execute(
         select(AssessmentSession)
+        .options(selectinload(AssessmentSession.assessment))
         .where(AssessmentSession.user_id == current_user.id)
         .order_by(AssessmentSession.started_at.desc())
     )
     sessions = result.scalars().all()
-    return [SessionOut.model_validate(s) for s in sessions]
+    out = []
+    for s in sessions:
+        data = SessionOut.model_validate(s)
+        if s.assessment:
+            data.assessment_name = s.assessment.name
+            data.assessment_slug = s.assessment.slug
+        out.append(data)
+    return out
 
 
 async def _get_owned_session(
@@ -135,11 +171,13 @@ async def _get_owned_session(
     return session
 
 
-async def _generate_pdf_background(report_out, assessment_id, db: AsyncSession):
+async def _generate_pdf_background(
+    report_out: ReportOut,
+    assessment_id: uuid.UUID,
+    db: AsyncSession,
+) -> None:
     """Fire-and-forget: generate PDF and update report.pdf_url."""
     try:
-        from sqlalchemy import select
-        from app.models.models import Assessment, Report
         from app.services.pdf import generate_and_upload_pdf
 
         assessment = await db.get(Assessment, assessment_id)

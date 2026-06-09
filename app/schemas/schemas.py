@@ -1,6 +1,5 @@
 import uuid
 from datetime import datetime
-from decimal import Decimal
 from typing import Any, Optional
 
 from pydantic import BaseModel, EmailStr
@@ -91,6 +90,8 @@ class SessionOut(BaseModel):
     tier_at_time: TierEnum
     started_at: datetime
     completed_at: Optional[datetime]
+    assessment_name: Optional[str] = None
+    assessment_slug: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -99,6 +100,14 @@ class AnswerIn(BaseModel):
     question_id: str
     dimension_id: str
     answer_value: float
+
+
+class AnswerOut(BaseModel):
+    question_id: str
+    dimension_id: str
+    answer_value: float
+
+    model_config = {"from_attributes": True}
 
 
 # ---------------------------------------------------------------------------
@@ -157,6 +166,10 @@ class AnalyticsOut(BaseModel):
 
 class UserRoleUpdate(BaseModel):
     role: str
+
+
+class UserTierUpdate(BaseModel):
+    tier: TierEnum
 
 
 class AssessmentImportOut(BaseModel):
