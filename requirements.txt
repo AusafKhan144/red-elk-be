@@ -1,8 +1,8 @@
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
-sqlalchemy[asyncio]==2.0.23
+sqlalchemy[asyncio]==2.0.41
 asyncpg>=0.30.0
-alembic==1.13.1
+alembic==1.14.1
 pydantic[email]>=2.11.7
 pydantic-settings==2.1.0
 supabase==2.31.0
