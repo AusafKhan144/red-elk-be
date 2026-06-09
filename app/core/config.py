@@ -1,9 +1,6 @@
 import os
 from pydantic_settings import BaseSettings
 from typing import List
-from dotenv import load_dotenv
-
-load_dotenv(override=True)
 
 class Settings(BaseSettings):
     # Project
