@@ -3,6 +3,7 @@ from functools import lru_cache
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 from supabase import create_client, Client
 
 from app.core.config import settings
@@ -26,9 +27,11 @@ async def get_current_user(
     token = credentials.credentials
     try:
         response = _get_supabase().auth.get_user(token)
-        sb_user = response.user
+        sb_user = response.user if response is not None else None
         if not sb_user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    except HTTPException:
+        raise
     except RuntimeError:
         raise
     except Exception:
@@ -37,14 +40,22 @@ async def get_current_user(
     user_id = uuid.UUID(str(sb_user.id))
     user = await db.get(User, user_id)
     if not user:
-        user = User(
-            id=user_id,
-            email=sb_user.email,
-            tier=TierEnum.free,
-        )
-        db.add(user)
-        await db.commit()
-        await db.refresh(user)
+        try:
+            user = User(
+                id=user_id,
+                email=sb_user.email,
+                tier=TierEnum.free,
+            )
+            db.add(user)
+            await db.commit()
+            await db.refresh(user)
+        except IntegrityError:
+            # Another concurrent request already inserted this user; roll back
+            # our failed transaction and fetch the row that won the race.
+            await db.rollback()
+            user = await db.get(User, user_id)
+            if not user:
+                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create user")
 
     return user
 
