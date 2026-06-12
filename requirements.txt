@@ -10,6 +10,7 @@ python-decouple==3.8
 aiofiles==23.2.1
 httpx==0.27.2
 weasyprint==60.2
+pydyf==0.10.0   # weasyprint 60.x breaks with pydyf >= 0.11 (PDF.__init__ API change)
 cloudinary==1.36.0
 jinja2==3.1.2
 psycopg2-binary==2.9.12

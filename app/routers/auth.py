@@ -5,6 +5,7 @@ from app.core.database import get_db
 from app.dependencies import get_current_user
 from app.models.models import User
 from app.schemas.schemas import UserProfile, UserUpdate
+from app.services import report_builder
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -28,8 +29,13 @@ async def register(
 
 
 @router.get("/me", response_model=UserProfile)
-async def me(current_user: User = Depends(get_current_user)):
-    return UserProfile.model_validate(current_user)
+async def me(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    profile = UserProfile.model_validate(current_user)
+    profile.maturity_summary = await report_builder.get_maturity_summary(current_user.id, db)
+    return profile
 
 
 @router.patch("/me", response_model=UserProfile)

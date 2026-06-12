@@ -8,8 +8,26 @@ from app.models.models import SessionStatus, TierEnum
 
 
 # ---------------------------------------------------------------------------
+# Shared
+# ---------------------------------------------------------------------------
+
+class RadarPoint(BaseModel):
+    dimension: str
+    score: float
+    label: str
+
+
+# ---------------------------------------------------------------------------
 # User
 # ---------------------------------------------------------------------------
+
+class MaturitySummary(BaseModel):
+    overall_score: float
+    tier_result: str
+    radar_data: list[RadarPoint]
+    as_of_session_id: uuid.UUID
+    as_of_date: datetime
+
 
 class UserProfile(BaseModel):
     id: uuid.UUID
@@ -18,6 +36,7 @@ class UserProfile(BaseModel):
     company: Optional[str]
     role: str
     created_at: datetime
+    maturity_summary: Optional[MaturitySummary] = None
 
     model_config = {"from_attributes": True}
 
@@ -92,6 +111,10 @@ class SessionOut(BaseModel):
     completed_at: Optional[datetime]
     assessment_name: Optional[str] = None
     assessment_slug: Optional[str] = None
+    score: Optional[float] = None                       # overall_score from linked report
+    tier_result: Optional[str] = None                   # from linked report
+    dimension_scores: Optional[list[RadarPoint]] = None # completed sessions only
+    progress_pct: Optional[int] = None                  # in_progress sessions only
 
     model_config = {"from_attributes": True}
 
@@ -114,12 +137,6 @@ class AnswerOut(BaseModel):
 # Reports
 # ---------------------------------------------------------------------------
 
-class RadarPoint(BaseModel):
-    dimension: str
-    score: float
-    label: str
-
-
 class ReportOut(BaseModel):
     id: uuid.UUID
     session_id: uuid.UUID
@@ -128,6 +145,7 @@ class ReportOut(BaseModel):
     tier_result: str
     recommendations: dict[str, str]
     radar_data: list[RadarPoint]
+    previous_radar_data: Optional[list[RadarPoint]] = None
     pdf_url: Optional[str]
     generated_at: datetime
 

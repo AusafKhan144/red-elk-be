@@ -197,7 +197,7 @@ PDF generation failure is swallowed silently — it must not break the submit fl
 
 ```
 POST /auth/register      # sync local user record (company field) — JWT required
-GET  /auth/me            # current user profile
+GET  /auth/me            # current user profile + maturity_summary (latest completed report: overall_score, tier_result, radar_data; null if none)
 
 GET  /assessments        # list published assessments
 GET  /assessments/{slug} # assessment with questions filtered by user tier
@@ -205,10 +205,10 @@ GET  /assessments/{slug} # assessment with questions filtered by user tier
 POST /sessions/start              body: {assessment_slug}
 POST /sessions/{id}/answer        body: {question_id, dimension_id, answer_value}
 POST /sessions/{id}/submit
-GET  /sessions
+GET  /sessions                    # each session includes: score + tier_result + dimension_scores (completed, from report; else null), progress_pct (in_progress only)
 
-GET  /reports/{session_id}
-GET  /reports/{session_id}/pdf
+GET  /reports/{session_id}        # includes previous_radar_data (prior completed session of same assessment, or null)
+GET  /reports/{session_id}/pdf    # 302 to Cloudinary; generates on demand; 502 if generation fails
 
 GET  /admin/sessions              ?limit=50&offset=0
 GET  /admin/analytics

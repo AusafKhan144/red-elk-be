@@ -7,8 +7,8 @@ from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.models.models import AssessmentSession, Report, Response, Assessment
-from app.schemas.schemas import RadarPoint, ReportOut
+from app.models.models import AssessmentSession, Report, Response, Assessment, SessionStatus
+from app.schemas.schemas import MaturitySummary, RadarPoint, ReportOut
 from app.services.scoring import score_responses, ScoringResult
 
 
@@ -66,6 +66,72 @@ async def build_report(session_id: uuid.UUID, db: AsyncSession) -> ReportOut:
     await db.refresh(report)
 
     return _to_report_out(report, scored)
+
+
+def build_radar_data(scores: dict, config: dict) -> list[RadarPoint]:
+    """Build radar points from a report's stored scores + dimension names in config."""
+    names = {d["id"]: d.get("name", d["id"]) for d in (config or {}).get("dimensions", [])}
+    return [
+        RadarPoint(dimension=dim_id, score=float(score), label=names.get(dim_id, dim_id))
+        for dim_id, score in (scores or {}).items()
+    ]
+
+
+async def get_previous_radar_data(
+    session: AssessmentSession, db: AsyncSession
+) -> list[RadarPoint] | None:
+    """
+    Radar data from the most recent completed session of the same assessment
+    by the same user, prior to the given session. None if no such report exists.
+    """
+    if session.completed_at is None:
+        return None
+    prev = await db.scalar(
+        select(AssessmentSession)
+        .where(
+            AssessmentSession.user_id == session.user_id,
+            AssessmentSession.assessment_id == session.assessment_id,
+            AssessmentSession.status == SessionStatus.completed,
+            AssessmentSession.completed_at < session.completed_at,
+            AssessmentSession.id != session.id,
+        )
+        .order_by(AssessmentSession.completed_at.desc())
+        .limit(1)
+    )
+    if not prev:
+        return None
+    report = await db.scalar(select(Report).where(Report.session_id == prev.id))
+    if not report:
+        return None
+    assessment = await db.get(Assessment, session.assessment_id)
+    return build_radar_data(report.scores, assessment.config if assessment else {})
+
+
+async def get_maturity_summary(user_id: uuid.UUID, db: AsyncSession) -> MaturitySummary | None:
+    """Summary of the user's most recent completed session's report, or None."""
+    row = (
+        await db.execute(
+            select(Report, AssessmentSession)
+            .join(AssessmentSession, Report.session_id == AssessmentSession.id)
+            .where(
+                AssessmentSession.user_id == user_id,
+                AssessmentSession.status == SessionStatus.completed,
+            )
+            .order_by(AssessmentSession.completed_at.desc())
+            .limit(1)
+        )
+    ).first()
+    if not row:
+        return None
+    report, session = row
+    assessment = await db.get(Assessment, session.assessment_id)
+    return MaturitySummary(
+        overall_score=float(report.overall_score),
+        tier_result=report.tier_result,
+        radar_data=build_radar_data(report.scores, assessment.config if assessment else {}),
+        as_of_session_id=session.id,
+        as_of_date=session.completed_at,
+    )
 
 
 def _to_report_out(report: Report, scored) -> ReportOut:

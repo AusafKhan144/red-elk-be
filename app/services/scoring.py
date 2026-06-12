@@ -69,6 +69,14 @@ def score_responses(responses: list[dict], config: dict, tier: str) -> ScoringRe
     )
 
 
+def accessible_question_count(config: dict, tier: str) -> int:
+    """Total number of questions accessible at this tier across all dimensions."""
+    return sum(
+        len(_filter_questions_by_tier(dim.get("questions", []), tier))
+        for dim in config.get("dimensions", [])
+    )
+
+
 def _filter_questions_by_tier(questions: list[dict], tier: str) -> list[dict]:
     """Return questions accessible at this tier, capped per the tier limit."""
     user_level = _TIER_ORDER.get(tier, 0)

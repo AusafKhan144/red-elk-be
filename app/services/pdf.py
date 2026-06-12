@@ -5,6 +5,7 @@ PDF generation pipeline:
   3. Upload to Cloudinary
   4. Return the secure URL
 """
+import asyncio
 import io
 import uuid
 from pathlib import Path
@@ -20,12 +21,28 @@ from app.schemas.schemas import ReportOut
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 _jinja_env = Environment(loader=FileSystemLoader(str(_TEMPLATES_DIR)), autoescape=True)
 
-cloudinary.config(
-    cloud_name=settings.CLOUDINARY_CLOUD_NAME,
-    api_key=settings.CLOUDINARY_API_KEY,
-    api_secret=settings.CLOUDINARY_API_SECRET,
-    secure=True,
-)
+_cloudinary_configured = False
+
+
+def _ensure_cloudinary() -> None:
+    """Configure Cloudinary lazily, failing loudly if credentials are missing."""
+    global _cloudinary_configured
+    if _cloudinary_configured:
+        return
+    missing = [
+        name
+        for name in ("CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET")
+        if not getattr(settings, name)
+    ]
+    if missing:
+        raise RuntimeError(f"Cloudinary not configured — missing env vars: {', '.join(missing)}")
+    cloudinary.config(
+        cloud_name=settings.CLOUDINARY_CLOUD_NAME,
+        api_key=settings.CLOUDINARY_API_KEY,
+        api_secret=settings.CLOUDINARY_API_SECRET,
+        secure=True,
+    )
+    _cloudinary_configured = True
 
 
 async def generate_and_upload_pdf(report: ReportOut, assessment_name: str) -> str:
@@ -33,9 +50,12 @@ async def generate_and_upload_pdf(report: ReportOut, assessment_name: str) -> st
     Render report HTML, convert to PDF bytes, upload to Cloudinary.
     Returns the secure Cloudinary URL.
     """
+    _ensure_cloudinary()
     html_str = _render_html(report, assessment_name)
-    pdf_bytes = _html_to_pdf(html_str)
-    url = _upload_to_cloudinary(pdf_bytes, report.session_id)
+    # WeasyPrint rendering and the Cloudinary upload are blocking — keep them
+    # off the event loop.
+    pdf_bytes = await asyncio.to_thread(_html_to_pdf, html_str)
+    url = await asyncio.to_thread(_upload_to_cloudinary, pdf_bytes, report.session_id)
     return url
 
 
@@ -64,4 +84,7 @@ def _upload_to_cloudinary(pdf_bytes: bytes, session_id: uuid.UUID) -> str:
         format="pdf",
         overwrite=True,
     )
-    return result["secure_url"]
+    url = result.get("secure_url")
+    if not url:
+        raise RuntimeError(f"Cloudinary upload returned no secure_url: {result}")
+    return url

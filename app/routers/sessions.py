@@ -1,20 +1,27 @@
 import asyncio
+import logging
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.database import get_db
+from app.core.database import async_session_maker, get_db
 from app.dependencies import get_current_user
 from app.models.models import Assessment, AssessmentSession, Report, Response, SessionStatus, User
 from app.schemas.schemas import AnswerIn, AnswerOut, ReportOut, SessionOut, SessionStartIn
 from app.services import report_builder
+from app.services.scoring import accessible_question_count
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
+
+# Strong references so fire-and-forget PDF tasks aren't garbage-collected mid-flight
+_background_tasks: set[asyncio.Task] = set()
 
 
 @router.post("/start", response_model=SessionOut, status_code=status.HTTP_201_CREATED)
@@ -104,7 +111,9 @@ async def submit_session(
 
     report_out = await report_builder.build_report(session_id, db)
 
-    asyncio.create_task(_generate_pdf_background(report_out, session.assessment_id, db))
+    task = asyncio.create_task(_generate_pdf_background(report_out, session.assessment_id))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
     return {"ok": True, "report_id": str(report_out.id)}
 
@@ -148,12 +157,46 @@ async def list_sessions(
         .order_by(AssessmentSession.started_at.desc())
     )
     sessions = result.scalars().all()
+    session_ids = [s.id for s in sessions]
+
+    reports_by_session: dict[uuid.UUID, Report] = {}
+    answer_counts: dict[uuid.UUID, int] = {}
+    if session_ids:
+        reports = await db.execute(select(Report).where(Report.session_id.in_(session_ids)))
+        reports_by_session = {r.session_id: r for r in reports.scalars().all()}
+
+        in_progress_ids = [s.id for s in sessions if s.status == SessionStatus.in_progress]
+        if in_progress_ids:
+            counts = await db.execute(
+                select(Response.session_id, func.count(Response.id))
+                .where(Response.session_id.in_(in_progress_ids))
+                .group_by(Response.session_id)
+            )
+            answer_counts = {sid: n for sid, n in counts.all()}
+
     out = []
     for s in sessions:
         data = SessionOut.model_validate(s)
         if s.assessment:
             data.assessment_name = s.assessment.name
             data.assessment_slug = s.assessment.slug
+
+        report = reports_by_session.get(s.id)
+        if report:
+            data.score = float(report.overall_score)
+            data.tier_result = report.tier_result
+            if s.status == SessionStatus.completed and s.assessment:
+                data.dimension_scores = report_builder.build_radar_data(
+                    report.scores, s.assessment.config
+                )
+
+        if s.status == SessionStatus.in_progress and s.assessment:
+            total = accessible_question_count(s.assessment.config, s.tier_at_time.value)
+            if total > 0:
+                data.progress_pct = min(round(answer_counts.get(s.id, 0) / total * 100), 100)
+            else:
+                data.progress_pct = 0
+
         out.append(data)
     return out
 
@@ -174,18 +217,23 @@ async def _get_owned_session(
 async def _generate_pdf_background(
     report_out: ReportOut,
     assessment_id: uuid.UUID,
-    db: AsyncSession,
 ) -> None:
-    """Fire-and-forget: generate PDF and update report.pdf_url."""
+    """Fire-and-forget: generate PDF and update report.pdf_url.
+
+    Uses a fresh DB session — the request-scoped session is closed by the time
+    this task runs. Failures are logged but never propagate (PDF must not break
+    the submit flow).
+    """
     try:
         from app.services.pdf import generate_and_upload_pdf
 
-        assessment = await db.get(Assessment, assessment_id)
-        url = await generate_and_upload_pdf(report_out, assessment.name if assessment else "Assessment")
+        async with async_session_maker() as db:
+            assessment = await db.get(Assessment, assessment_id)
+            url = await generate_and_upload_pdf(report_out, assessment.name if assessment else "Assessment")
 
-        report = await db.scalar(select(Report).where(Report.session_id == report_out.session_id))
-        if report:
-            report.pdf_url = url
-            await db.commit()
+            report = await db.scalar(select(Report).where(Report.session_id == report_out.session_id))
+            if report:
+                report.pdf_url = url
+                await db.commit()
     except Exception:
-        pass  # PDF failure must not break the submit flow
+        logger.exception("PDF generation failed for session %s", report_out.session_id)
