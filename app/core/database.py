@@ -5,7 +5,9 @@ ASYNC_DATABASE_URL = settings.DATABASE_URL.replace("postgresql://", "postgresql+
 
 engine = create_async_engine(
     ASYNC_DATABASE_URL,
-    echo=settings.ENVIRONMENT == "development",
+    # SQL logging is handled centrally via the `sqlalchemy.engine` logger
+    # (see app/core/logging.py), kept at WARNING to avoid per-statement spam.
+    echo=False,
     pool_size=10,
     max_overflow=20,
     connect_args={"statement_cache_size": 0},
