@@ -50,6 +50,10 @@ async def start_session(
     db.add(session)
     await db.commit()
     await db.refresh(session)
+    logger.info(
+        "session started: user=%s assessment=%s tier=%s session=%s",
+        current_user.email, slug, session.tier_at_time.value, session.id,
+    )
     return SessionOut.model_validate(session)
 
 
@@ -110,6 +114,10 @@ async def submit_session(
     await db.commit()
 
     report_out = await report_builder.build_report(session_id, db)
+    logger.info(
+        "session submitted: user=%s session=%s score=%.1f result=%s",
+        current_user.email, session_id, float(report_out.overall_score), report_out.tier_result,
+    )
 
     task = asyncio.create_task(_generate_pdf_background(report_out, session.assessment_id))
     _background_tasks.add(task)

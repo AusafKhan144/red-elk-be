@@ -1,6 +1,7 @@
+import logging
 import uuid
 from functools import lru_cache
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
@@ -9,6 +10,8 @@ from supabase import create_client, Client
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.models import User, TierEnum
+
+logger = logging.getLogger("redelk.auth")
 
 _bearer = HTTPBearer()
 
@@ -21,6 +24,7 @@ def _get_supabase() -> Client:
 
 
 async def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(_bearer),
     db: AsyncSession = Depends(get_db),
 ) -> User:
@@ -49,6 +53,7 @@ async def get_current_user(
             db.add(user)
             await db.commit()
             await db.refresh(user)
+            logger.info("new user signed up: %s (id=%s)", user.email, user.id)
         except IntegrityError:
             # Another concurrent request already inserted this user; roll back
             # our failed transaction and fetch the row that won the race.
@@ -57,6 +62,8 @@ async def get_current_user(
             if not user:
                 raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create user")
 
+    # Tag the request so the access-log middleware can attribute it to a user.
+    request.state.user = user
     return user
 
 
